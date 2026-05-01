@@ -1,0 +1,108 @@
+/**
+ * @NApiVersion 2.1
+ * @NScriptType Restlet
+ */
+define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
+
+    const get = (params) => {
+        try {
+            const apiKey = params.apiKey || '';
+            const limit = Number(params.limit || 100);
+
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>';
+            xml += '<DATA_DS>';
+
+            const invoiceSearch = search.create({
+                type: search.Type.INVOICE,
+                filters: [
+                    ['mainline', 'is', 'T'],
+                    'AND',
+                    ['approvalstatus', 'anyof', '1'] // Pending Approval
+                ],
+                columns: [
+                    'internalid',
+                    'tranid',
+                    'trandate',
+                    'type',
+                    'source',
+                    'subsidiary'
+                ]
+            });
+
+            let count = 0;
+
+            invoiceSearch.run().each((result) => {
+                if (count >= limit) {
+                    return false;
+                }
+
+                const trxNumber = val(result, 'internalid');
+                const trxDate = val(result, 'trandate');
+                const type = text(result, 'type');
+                const sourceName = text(result, 'source');
+                const orgName = text(result, 'subsidiary');
+
+                xml += '<G_1>';
+                xml += tag('APIKEYFORDATA', apiKey);
+                xml += tag('TRX_NUMBER', trxNumber);
+                xml += tag('TRX_DATE', trxDate);
+                xml += tag('TYPE', type);
+                xml += tag('TRX_SOURCE_NAME', sourceName);
+                xml += tag('ORG_NAME', orgName);
+                xml += '</G_1>';
+
+                count++;
+                return true;
+            });
+
+            xml += '</DATA_DS>';
+
+            return restlet.createResponse({
+                contentType: 'application/xml',
+                content: xml
+            });
+
+        } catch (e) {
+            return restlet.createResponse({
+                contentType: 'application/xml',
+                content:
+                    '<?xml version="1.0" encoding="UTF-8"?>' +
+                    '<ERROR>' +
+                    tag('CODE', e.name || 'ERROR') +
+                    tag('MESSAGE', e.message || String(e)) +
+                    '</ERROR>'
+            });
+        }
+    };
+
+    function val(result, name) {
+        try {
+            return result.getValue({ name }) || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function text(result, name) {
+        try {
+            return result.getText({ name }) || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function tag(name, value) {
+        return '<' + name + '>' + esc(value) + '</' + name + '>';
+    }
+
+    function esc(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    return { get };
+});
