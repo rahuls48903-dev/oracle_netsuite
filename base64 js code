@@ -1,0 +1,88 @@
+/**
+ * @NApiVersion 2.1
+ * @NScriptType Restlet
+ */
+define(['N/render', 'N/record', 'N/scriptTypes/restlet'], (render, record, restlet) => {
+
+    const get = (params) => {
+        try {
+            const invoiceId = params.invoiceId;
+
+            if (!invoiceId) {
+                return errorResponse('INVALID_REQUEST', 'invoiceId is required');
+            }
+
+            const inv = record.load({
+                type: record.Type.INVOICE,
+                id: Number(invoiceId),
+                isDynamic: false
+            });
+
+            // IRN field
+            const irn = safe(inv.getValue({ fieldId: 'custbody3' }));
+
+            if (!irn) {
+                return errorResponse('IRN_NOT_GENERATED', 'IRN is not generated for this invoice.');
+            }
+
+            // Company / subsidiary name
+            const companyName = safe(inv.getText({ fieldId: 'subsidiary' }));
+
+            // Signer name
+            // Change this field ID if your signer is stored in another field
+            const signerName = firstNonBlank(
+                safe(inv.getText({ fieldId: 'custbody_nhfms_ff_std_createdby' })),
+                safe(inv.getText({ fieldId: 'custbody_signed_by' })),
+                safe(inv.getText({ fieldId: 'createdby' }))
+            );
+
+            const pdfFile = render.transaction({
+                entityId: Number(invoiceId),
+                printMode: render.PrintMode.PDF
+            });
+
+            return restlet.createResponse({
+                contentType: 'application/json',
+                content: JSON.stringify({
+                    success: true,
+                    invoiceId: String(invoiceId),
+                    irn: irn,
+                    companyName: companyName,
+                    signerName: signerName,
+                    fileName: pdfFile.name,
+                    fileType: pdfFile.fileType,
+                    content: pdfFile.getContents()
+                })
+            });
+
+        } catch (e) {
+            return errorResponse(e.name || 'ERROR', e.message || String(e));
+        }
+    };
+
+    function errorResponse(code, message) {
+        return restlet.createResponse({
+            contentType: 'application/json',
+            content: JSON.stringify({
+                success: false,
+                errorCode: code,
+                message: message
+            })
+        });
+    }
+
+    function safe(v) {
+        return v == null ? '' : String(v).trim();
+    }
+
+    function firstNonBlank() {
+        for (let i = 0; i < arguments.length; i++) {
+            if (arguments[i] !== null && arguments[i] !== undefined && String(arguments[i]).trim() !== '') {
+                return String(arguments[i]).trim();
+            }
+        }
+        return '';
+    }
+
+    return { get };
+});
