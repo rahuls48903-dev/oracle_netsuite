@@ -1,0 +1,125 @@
+/**
+ * @NApiVersion 2.1
+ * @NScriptType Restlet
+ */
+define(['N/record', 'N/scriptTypes/restlet'], (record, restlet) => {
+
+    const get = (requestParams) => {
+        try {
+            const invoiceId = Number(requestParams.invoiceId);
+
+            if (!invoiceId) {
+                return xmlResponse(errorXml('INVALID_REQUEST', 'invoiceId is required'));
+            }
+
+            const inv = record.load({
+                type: record.Type.INVOICE,
+                id: invoiceId,
+                isDynamic: false
+            });
+
+            const tranId = safe(inv.getValue('tranid'));
+            const entityText = safe(inv.getText('entity'));
+            const tranDate = safe(inv.getText('trandate'));
+            const dueDate = safe(inv.getText('duedate'));
+            const memo = safe(inv.getValue('memo'));
+            const subtotal = safe(inv.getValue('subtotal'));
+            const taxtotal = safe(inv.getValue('taxtotal'));
+            const total = safe(inv.getValue('total'));
+
+            const lineCount = inv.getLineCount({ sublistId: 'item' });
+
+            let itemsXml = '';
+            for (let i = 0; i < lineCount; i++) {
+                const itemText = safe(inv.getSublistText({
+                    sublistId: 'item',
+                    fieldId: 'item',
+                    line: i
+                }));
+
+                const quantity = safe(inv.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'quantity',
+                    line: i
+                }));
+
+                const rate = safe(inv.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'rate',
+                    line: i
+                }));
+
+                const amount = safe(inv.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'amount',
+                    line: i
+                }));
+
+                const description = safe(inv.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'description',
+                    line: i
+                }));
+
+                itemsXml +=
+                    '<item>' +
+                        '<name>' + esc(itemText) + '</name>' +
+                        '<quantity>' + esc(quantity) + '</quantity>' +
+                        '<rate>' + esc(rate) + '</rate>' +
+                        '<amount>' + esc(amount) + '</amount>' +
+                        '<description>' + esc(description) + '</description>' +
+                    '</item>';
+            }
+
+            const xml =
+                '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<invoice>' +
+                    '<internalId>' + esc(invoiceId) + '</internalId>' +
+                    '<tranId>' + esc(tranId) + '</tranId>' +
+                    '<customer>' + esc(entityText) + '</customer>' +
+                    '<tranDate>' + esc(tranDate) + '</tranDate>' +
+                    '<dueDate>' + esc(dueDate) + '</dueDate>' +
+                    '<memo>' + esc(memo) + '</memo>' +
+                    '<subtotal>' + esc(subtotal) + '</subtotal>' +
+                    '<taxTotal>' + esc(taxtotal) + '</taxTotal>' +
+                    '<total>' + esc(total) + '</total>' +
+                    '<items>' + itemsXml + '</items>' +
+                '</invoice>';
+
+            return xmlResponse(xml);
+        } catch (e) {
+            return xmlResponse(errorXml(e.name || 'ERROR', e.message || String(e)));
+        }
+    };
+
+    function xmlResponse(body) {
+        return restlet.createResponse({
+            content: body,
+            contentType: 'application/xml'
+        });
+    }
+
+    function errorXml(code, message) {
+        return '<?xml version="1.0" encoding="UTF-8"?>' +
+            '<response>' +
+                '<status>error</status>' +
+                '<code>' + esc(code) + '</code>' +
+                '<message>' + esc(message) + '</message>' +
+            '</response>';
+    }
+
+    function safe(v) {
+        return v == null ? '' : String(v);
+    }
+
+    function esc(v) {
+        return String(v)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    }
+
+    return { get };
+});
