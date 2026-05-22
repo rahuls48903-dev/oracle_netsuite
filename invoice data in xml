@@ -4,6 +4,8 @@
  */
 define(['N/record', 'N/scriptTypes/restlet'], (record, restlet) => {
 
+    const hsnCache = {};
+
     const get = (requestParams) => {
         try {
             const invoiceId = Number(requestParams.invoiceId);
@@ -18,79 +20,731 @@ define(['N/record', 'N/scriptTypes/restlet'], (record, restlet) => {
                 isDynamic: false
             });
 
-            const tranId = safe(inv.getValue('tranid'));
-            const entityText = safe(inv.getText('entity'));
-            const tranDate = safe(inv.getText('trandate'));
-            const dueDate = safe(inv.getText('duedate'));
-            const memo = safe(inv.getValue('memo'));
-            const subtotal = safe(inv.getValue('subtotal'));
-            const taxtotal = safe(inv.getValue('taxtotal'));
-            const total = safe(inv.getValue('total'));
+            const customerId = safe(getVal(inv, 'entity'));
+            const subsidiaryId = safe(getVal(inv, 'subsidiary'));
+            const locationId = safe(getVal(inv, 'location'));
 
-            const lineCount = inv.getLineCount({ sublistId: 'item' });
+            const customerRec = loadRecordSafe(record.Type.CUSTOMER, customerId);
+            const subsidiaryRec = loadRecordSafe(record.Type.SUBSIDIARY, subsidiaryId);
+            const locationRec = loadRecordSafe(record.Type.LOCATION, locationId);
 
-            let itemsXml = '';
-            for (let i = 0; i < lineCount; i++) {
-                const itemText = safe(inv.getSublistText({
-                    sublistId: 'item',
-                    fieldId: 'item',
-                    line: i
-                }));
+            const customerExtra = readCustomerExtra(customerRec);
+            const subsidiaryExtra = readSubsidiaryExtra(subsidiaryRec);
+            const locationExtra = readLocationExtra(locationRec);
 
-                const quantity = safe(inv.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'quantity',
-                    line: i
-                }));
+            const billingAddress = readAddress(inv, 'billingaddress');
+            const shippingAddress = readAddress(inv, 'shippingaddress');
 
-                const rate = safe(inv.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'rate',
-                    line: i
-                }));
+            const billingAddressText = safe(getVal(inv, 'billaddress'));
+            const shippingAddressText = safe(getVal(inv, 'shipaddress'));
 
-                const amount = safe(inv.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'amount',
-                    line: i
-                }));
+            const header = {
+                internalId: safe(inv.id),
+                tranId: safe(getVal(inv, 'tranid')),
+                transactionNumber: safe(getVal(inv, 'transactionnumber')),
+                tranDate: safe(getText(inv, 'trandate')),
+                dueDate: safe(getText(inv, 'duedate')),
+                createdDate: safe(getVal(inv, 'createddate')),
+                lastModifiedDate: safe(getVal(inv, 'lastmodifieddate')),
+                memo: safe(getVal(inv, 'memo')),
+                otherRefNum: safe(getVal(inv, 'otherrefnum')),
+                poDate: safe(getVal(inv, 'custbody_xxflx_po_date')),
+                startDate: safe(getVal(inv, 'startdate')),
+                endDate: safe(getVal(inv, 'enddate')),
+                salesEffectiveDate: safe(getVal(inv, 'saleseffectivedate')),
+                taxPointDate: safe(getVal(inv, 'taxpointdate')),
 
-                const description = safe(inv.getSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'description',
-                    line: i
-                }));
+                entityId: customerId,
+                entityName: safe(getText(inv, 'entity')),
+                email: safe(getVal(inv, 'email')),
+                entityTaxRegNum: safe(getText(inv, 'entitytaxregnum')),
 
-                itemsXml +=
-                    '<item>' +
-                        '<name>' + esc(itemText) + '</name>' +
-                        '<quantity>' + esc(quantity) + '</quantity>' +
-                        '<rate>' + esc(rate) + '</rate>' +
-                        '<amount>' + esc(amount) + '</amount>' +
-                        '<description>' + esc(description) + '</description>' +
-                    '</item>';
-            }
+                subsidiaryId: subsidiaryId,
+                subsidiaryName: safe(getText(inv, 'subsidiary')),
+                subsidiaryTaxRegNum: safe(getText(inv, 'subsidiarytaxregnum')),
+                locationId: locationId,
+                locationName: safe(getText(inv, 'location')),
+                classId: safe(getVal(inv, 'class')),
+                className: safe(getText(inv, 'class')),
+                departmentId: safe(getVal(inv, 'department')),
+                departmentName: safe(getText(inv, 'department')),
+
+                currencyId: safe(getVal(inv, 'currency')),
+                currencyName: safe(getText(inv, 'currency')),
+                exchangeRate: safe(getVal(inv, 'exchangerate')),
+                subtotal: safe(getVal(inv, 'subtotal')),
+                taxTotal: safe(getVal(inv, 'taxtotal')),
+                total: safe(getVal(inv, 'total')),
+                amountPaid: safe(getVal(inv, 'amountpaid')),
+                amountRemaining: safe(getVal(inv, 'amountremaining')),
+                discountTotal: safe(getVal(inv, 'discounttotal')),
+
+                status: safe(getText(inv, 'status')),
+                approvalStatusId: safe(getVal(inv, 'approvalstatus')),
+                approvalStatusName: safe(getText(inv, 'approvalstatus')),
+                customFormId: safe(getVal(inv, 'customform')),
+                customFormName: safe(getText(inv, 'customform')),
+
+                nexusId: safe(getVal(inv, 'nexus')),
+                nexusName: safe(getText(inv, 'nexus')),
+                vendorGstin: safe(getVal(inv, 'custbody_in_vendor_gstin')),
+                placeOfSupply: safe(getVal(inv, 'custbody_in_place_of_supply')),
+                posName: safe(getText(inv, 'custbody_in_gst_pos')),
+                interIntraFlag: safe(getVal(inv, 'custbody_in_inter_intra_flg')),
+                natureOfDocument: safe(getText(inv, 'custbody_in_nature_of_document')),
+                transactionType: safe(getText(inv, 'custbody_in_eway_transaction_type')),
+                supplyType: safe(getText(inv, 'custbody_in_eway_supply_type')),
+                ewayGrossTotalAmount: safe(getVal(inv, 'custbody_in_eway_gst_total_amt')),
+
+                servicePeriod: safe(getText(inv, 'custbody_xx_flx_service_period')),
+                amountInWords: safe(getVal(inv, 'custbody_xxflx_amt_in_words')),
+                taxAmountInWords: safe(getVal(inv, 'custbody_xxflx_tax_amount_in_words')),
+                contractNumber: safe(getText(inv, 'custbody_xxflx_custcontract_number')),
+                termsAndConditions: safe(getVal(inv, 'custbody_xxflx_terms_and_conditions')),
+
+contractOrganizationName: firstNonBlank(
+    safe(getText(inv, 'subsidiary')), 
+    subsidiaryExtra.name
+),
+
+
+contractOrganizationAddress: firstNonBlank(
+    safe(getText(inv, 'custbody_xxflx_inv_add1')),
+   locationExtra.Address,
+  subsidiaryExtra.Address
+),
+  contractOrganizationAddress2: firstNonBlank(
+    safe(getText(inv, 'custbody_xxflx_inv_add2')),
+   locationExtra.Address2,
+  subsidiaryExtra.Address2
+),
+
+
+
+contractOrganizationCity: firstNonBlank(
+    safe(getText(inv, 'custbody_xxflx_inv_add_city')),
+    locationExtra.city,
+    subsidiaryExtra.city
+),
+
+contractOrganizationState: firstNonBlank(
+    safe(getText(inv, 'custbody_xxflx_inv_add_state')),
+    locationExtra.state,
+    subsidiaryExtra.state
+),
+
+contractOrganizationCountry: firstNonBlank(
+    safe(getText(inv,'custbody_xxflx_inv_add_country')),
+  locationExtra.Country
+),
+
+contractOrganizationPincode: firstNonBlank(
+    safe(getText(inv, 'custbody_xxflx_inv_add_pincode')),
+    locationExtra.Pincode,
+    subsidiaryExtra.Pincode
+),
+
+contractPanNumber: firstNonBlank(
+    subsidiaryExtra.pan
+),
+
+contractGstinNumber: firstNonBlank(
+    locationExtra.gstin,
+    subsidiaryExtra.gstin,
+    safe(getText(inv, 'subsidiarytaxregnum'))
+),
+                customerPanNumber: customerExtra.pan,
+               customerGstinNumber: firstNonBlank(
+    customerExtra.gstin,
+    safe(getText(inv, 'entitytaxregnum'))
+),
+                dispatchCityFrom: locationExtra.city,
+                dispatchStateFrom: locationExtra.state,
+                dispatchCityTo: shippingAddress.city,
+                dispatchStateTo: shippingAddress.state,
+
+                projectName: safe(getText(inv, 'class')),
+                projectType: safe(getText(inv, 'class')),
+                nimbusBu: safe(getText(inv, 'subsidiary'))
+            };
+
+            const itemLinesXml = buildItemLinesXml(inv);
+            const taxDetailsXml = buildTaxDetailsXml(inv);
 
             const xml =
                 '<?xml version="1.0" encoding="UTF-8"?>' +
                 '<invoice>' +
-                    '<internalId>' + esc(invoiceId) + '</internalId>' +
-                    '<tranId>' + esc(tranId) + '</tranId>' +
-                    '<customer>' + esc(entityText) + '</customer>' +
-                    '<tranDate>' + esc(tranDate) + '</tranDate>' +
-                    '<dueDate>' + esc(dueDate) + '</dueDate>' +
-                    '<memo>' + esc(memo) + '</memo>' +
-                    '<subtotal>' + esc(subtotal) + '</subtotal>' +
-                    '<taxTotal>' + esc(taxtotal) + '</taxTotal>' +
-                    '<total>' + esc(total) + '</total>' +
-                    '<items>' + itemsXml + '</items>' +
+
+                    '<header>' +
+                        tag('internalId', header.internalId) +
+                        tag('tranId', header.tranId) +
+                        tag('transactionNumber', header.transactionNumber) +
+                        tag('tranDate', header.tranDate) +
+                        tag('dueDate', header.dueDate) +
+                        tag('createdDate', header.createdDate) +
+                        tag('lastModifiedDate', header.lastModifiedDate) +
+                        tag('memo', header.memo) +
+                        tag('otherRefNum', header.otherRefNum) +
+                        tag('poDate', header.poDate) +
+                        tag('startDate', header.startDate) +
+                        tag('endDate', header.endDate) +
+                        tag('salesEffectiveDate', header.salesEffectiveDate) +
+                        tag('taxPointDate', header.taxPointDate) +
+                    '</header>' +
+
+                    '<customer>' +
+                        tag('id', header.entityId) +
+                        tag('name', header.entityName) +
+                        tag('email', header.email) +
+                        tag('taxRegistrationNumber', header.entityTaxRegNum) +
+                        tag('panNumber', header.customerPanNumber) +
+                        tag('gstinNumber', header.customerGstinNumber) +
+                    '</customer>' +
+
+                    '<organization>' +
+                        tag('subsidiaryId', header.subsidiaryId) +
+                        tag('subsidiaryName', header.subsidiaryName) +
+                        tag('subsidiaryTaxRegNum', header.subsidiaryTaxRegNum) +
+                        tag('locationId', header.locationId) +
+                        tag('locationName', header.locationName) +
+                        tag('classId', header.classId) +
+                        tag('className', header.className) +
+                        tag('departmentId', header.departmentId) +
+                        tag('departmentName', header.departmentName) +
+                        tag('customFormId', header.customFormId) +
+                        tag('customFormName', header.customFormName) +
+
+                        tag('contractOrganizationName', header.contractOrganizationName) +
+                        tag('contractOrganizationAddress', header.contractOrganizationAddress) +
+                        tag('contractOrganizationAddress2', header.contractOrganizationAddress2) +
+                       
+                        tag('contractOrganizationCity', header.contractOrganizationCity) +
+                        // tag('custbody_xxflx_inv_add1', header.contractOrganizationAddress1)
+                        tag('contractOrganizationState', header.contractOrganizationState) +
+                        tag('contractOrganizationCountry', header.contractOrganizationCountry) +
+                        tag('contractOrganizationPincode', header.contractOrganizationPincode) +
+                        tag('contractPanNumber', header.contractPanNumber) +
+                        tag('contractGstinNumber', header.contractGstinNumber) +
+                        tag('nimbusBu', header.nimbusBu) +
+                    '</organization>' +
+
+                    '<currency>' +
+                        tag('id', header.currencyId) +
+                        tag('name', header.currencyName) +
+                        tag('exchangeRate', header.exchangeRate) +
+                    '</currency>' +
+
+                    '<statusBlock>' +
+                        tag('status', header.status) +
+                        tag('approvalStatusId', header.approvalStatusId) +
+                        tag('approvalStatusName', header.approvalStatusName) +
+                    '</statusBlock>' +
+
+                    '<totals>' +
+                        tag('subtotal', header.subtotal) +
+                        tag('taxTotal', header.taxTotal) +
+                        tag('total', header.total) +
+                        tag('amountPaid', header.amountPaid) +
+                        tag('amountRemaining', header.amountRemaining) +
+                        tag('discountTotal', header.discountTotal) +
+                    '</totals>' +
+
+                    '<taxAndCompliance>' +
+                        tag('nexusId', header.nexusId) +
+                        tag('nexusName', header.nexusName) +
+                        tag('vendorGstin', header.vendorGstin) +
+                        tag('placeOfSupply', header.placeOfSupply) +
+                        tag('posName', header.posName) +
+                        tag('interIntraFlag', header.interIntraFlag) +
+                        tag('natureOfDocument', header.natureOfDocument) +
+                        tag('transactionType', header.transactionType) +
+                        tag('supplyType', header.supplyType) +
+                        tag('ewayGrossTotalAmount', header.ewayGrossTotalAmount) +
+                        tag('dispatchCityFrom', header.dispatchCityFrom) +
+                        tag('dispatchStateFrom', header.dispatchStateFrom) +
+                        tag('dispatchCityTo', header.dispatchCityTo) +
+                        tag('dispatchStateTo', header.dispatchStateTo) +
+                        tag('projectName', header.projectName) +
+                        tag('projectType', header.projectType) +
+                    '</taxAndCompliance>' +
+
+                    '<commercial>' +
+                        tag('servicePeriod', header.servicePeriod) +
+                        tag('amountInWords', header.amountInWords) +
+                        tag('taxAmountInWords', header.taxAmountInWords) +
+                        tag('contractNumber', header.contractNumber) +
+                        tag('termsAndConditions', header.termsAndConditions) +
+                    '</commercial>' +
+
+                    '<billingAddress>' +
+                        tag('text', billingAddressText) +
+                        addressXml(billingAddress) +
+                    '</billingAddress>' +
+
+                    '<shippingAddress>' +
+                        tag('text', shippingAddressText) +
+                        addressXml(shippingAddress) +
+                    '</shippingAddress>' +
+
+                    '<itemLines>' + itemLinesXml + '</itemLines>' +
+                    '<taxDetails>' + taxDetailsXml + '</taxDetails>' +
+
                 '</invoice>';
 
             return xmlResponse(xml);
+
         } catch (e) {
             return xmlResponse(errorXml(e.name || 'ERROR', e.message || String(e)));
         }
     };
+  function getTaxTypeFromTaxDetails(inv, lineNumber) {
+    const sublistId = 'taxdetails';
+    let count = 0;
+    let types = [];
+
+    try {
+        count = inv.getLineCount({ sublistId });
+    } catch (e) {
+        return '';
+    }
+
+    for (let i = 0; i < count; i++) {
+        const ref = safe(getSublistVal(inv, sublistId, 'taxdetailsreference', i));
+
+        if (ref && ref.endsWith('_' + lineNumber)) {
+            const type = safe(getSublistText(inv, sublistId, 'taxtype', i));
+            if (type) {
+                types.push(type);
+            }
+        }
+    }
+
+    return types.join('+'); // Example: CGST+SGST
+}
+  function getGstRateFromTaxDetails(inv, lineNumber) {
+    const sublistId = 'taxdetails';
+    let count = 0;
+    let totalRate = 0;
+
+    try {
+        count = inv.getLineCount({ sublistId });
+    } catch (e) {
+        return 0;
+    }
+
+    for (let i = 0; i < count; i++) {
+        const ref = safe(getSublistVal(inv, sublistId, 'taxdetailsreference', i));
+
+        if (ref && ref.endsWith('_' + lineNumber)) {
+            const rate = Number(getSublistVal(inv, sublistId, 'taxrate', i)) || 0;
+            totalRate += rate;
+        }
+    }
+
+    return totalRate;
+}
+  function getUqcCodeFromUnits(unitsId) {
+    if (!unitsId) return '';
+
+    const searchObj = search.create({
+        type: 'customrecord_india_uqc_list',
+        filters: [
+            ['custrecord_quantity', 'anyof', unitsId]
+        ],
+        columns: ['custrecord_uqc_code']
+    });
+
+    const result = searchObj.run().getRange({ start: 0, end: 1 });
+
+    if (result && result.length > 0) {
+        return result[0].getValue('custrecord_uqc_code') || '';
+    }
+
+    return '';
+}
+function getItemUqc(itemId, itemType) {
+    try {
+        if (!itemId) return '';
+
+        const recordType = resolveItemRecordType(itemType);
+        if (!recordType) return '';
+
+        const itemRec = record.load({
+            type: recordType,
+            id: itemId,
+            isDynamic: false
+        });
+
+        const uqcRecordId = itemRec.getValue({
+            fieldId: 'custitem_uqc_code'
+        });
+
+        if (!uqcRecordId) return '';
+
+        const uqcRec = record.load({
+            type: 'customrecord735',
+            id: uqcRecordId,
+            isDynamic: false
+        });
+
+        return safe(uqcRec.getValue({
+            fieldId: 'custrecord_uqc_code'
+        }));
+
+    } catch (e) {
+        return '';
+    }
+}
+
+function buildItemLinesXml(inv) {
+
+    const sublistId = 'item';
+    const count = safeNumber(inv.getLineCount({ sublistId }));
+    let xml = '';
+
+    for (let i = 0; i < count; i++) {
+
+        const rawTaxRate1 = Number(getSublistVal(inv, sublistId, 'taxrate1', i)) || 0;
+        const rawTaxRate2 = Number(getSublistVal(inv, sublistId, 'taxrate2', i)) || 0;
+
+        const gstRate = getGstRateFromTaxDetails(inv, i + 1);
+
+        const itemId = safe(getSublistVal(inv, sublistId, 'item', i));
+        const itemName = safe(getSublistText(inv, sublistId, 'item', i));
+        const itemType = safe(getSublistVal(inv, sublistId, 'itemtype', i));
+        const description = safe(getSublistVal(inv, sublistId, 'description', i));
+        const quantity = safe(getSublistVal(inv, sublistId, 'quantity', i));
+
+        // ✅ UQC VALUE
+        const custrecord_uqc_code = safe(
+            getSublistText(inv, sublistId, 'custcol_in_uqc', i)
+        );
+
+        const rate = safe(getSublistVal(inv, sublistId, 'rate', i));
+        const amount = safe(getSublistVal(inv, sublistId, 'amount', i));
+        const grossAmount = safe(getSublistVal(inv, sublistId, 'grossamt', i));
+        const taxCodeId = safe(getSublistVal(inv, sublistId, 'taxcode', i));
+        const taxtype = getTaxTypeFromTaxDetails(inv, i + 1);
+
+        const taxRate1 = rawTaxRate1;
+        const taxRate2 = rawTaxRate2;
+
+        const tax1Amt = safe(getSublistVal(inv, sublistId, 'tax1amt', i));
+        const taxAmount = safe(getSublistVal(inv, sublistId, 'taxamount', i));
+        const location = safe(getSublistText(inv, sublistId, 'location', i));
+        const className = safe(getSublistText(inv, sublistId, 'class', i));
+
+        const hsnSac = getItemHsn(itemId, itemType);
+
+        xml +=
+            '<line>' +
+                tag('lineNumber', i + 1) +
+                tag('itemId', itemId) +
+                tag('itemName', itemName) +
+                tag('itemType', itemType) +
+                tag('description', description) +
+                tag('quantity', quantity) +
+                tag('units', custrecord_uqc_code) +   // ✅ CHANGED HERE
+                tag('rate', rate) +
+                tag('amount', amount) +
+                tag('grossAmount', grossAmount) +
+                tag('taxCodeId', taxCodeId) +
+                tag('taxtype', taxtype) +
+                tag('taxRate1', taxRate1) +
+                tag('taxRate2', taxRate2) +
+                tag('tax1Amt', tax1Amt) +
+                tag('taxAmount', taxAmount) +
+                tag('hsnSac', hsnSac) +
+                tag('location', location) +
+                tag('className', className) +
+                tag('gstRate', gstRate) +
+            '</line>';
+    }
+
+    return xml;
+}
+    function getItemHsn(itemId, itemType) {
+        try {
+            if (!itemId) return '';
+            if (hsnCache[itemId]) return hsnCache[itemId];
+
+            const recordType = resolveItemRecordType(itemType);
+            if (!recordType) return '';
+
+            const itemRec = record.load({
+                type: recordType,
+                id: itemId,
+                isDynamic: false
+            });
+
+            let hsnCode = safe(itemRec.getText({ fieldId: 'custitem_in_hsn_code' }));
+
+            if (!hsnCode) {
+                hsnCode = safe(itemRec.getValue({ fieldId: 'custitem_in_hsn_code' }));
+            }
+
+            hsnCache[itemId] = hsnCode;
+            return hsnCode;
+
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function resolveItemRecordType(itemType) {
+        switch (itemType) {
+            case 'InvtPart': return record.Type.INVENTORY_ITEM;
+            case 'Service': return record.Type.SERVICE_ITEM;
+            case 'NonInvtPart': return record.Type.NON_INVENTORY_ITEM;
+            case 'Assembly': return record.Type.ASSEMBLY_ITEM;
+            case 'OthCharge': return record.Type.OTHER_CHARGE_ITEM;
+            case 'Kit': return record.Type.KIT_ITEM;
+            case 'Group': return record.Type.ITEM_GROUP;
+            default: return record.Type.NON_INVENTORY_ITEM;
+        }
+    }
+
+    function buildTaxDetailsXml(inv) {
+        const sublistId = 'taxdetails';
+        let count = 0;
+
+        try {
+            count = safeNumber(inv.getLineCount({ sublistId }));
+        } catch (e) {
+            return '';
+        }
+
+        let xml = '';
+
+        for (let i = 0; i < count; i++) {
+            const taxBasis = safe(getSublistVal(inv, sublistId, 'taxbasis', i));
+            const taxRate = firstNonBlank(
+                safe(getSublistVal(inv, sublistId, 'taxrate', i)),
+                safe(getSublistVal(inv, sublistId, 'taxrate1', i))
+            );
+            const taxAmount = firstNonBlank(
+                safe(getSublistVal(inv, sublistId, 'taxamount', i)),
+                safe(getSublistVal(inv, sublistId, 'tax1amt', i))
+            );
+            const taxCode = safe(getSublistText(inv, sublistId, 'taxcode', i));
+            const taxType = firstNonBlank(
+                safe(getSublistText(inv, sublistId, 'taxtype', i)),
+                safe(getSublistVal(inv, sublistId, 'taxtype', i))
+            );
+            const lineRef = firstNonBlank(
+                safe(getSublistVal(inv, sublistId, 'taxdetailsreference', i)),
+                safe(getSublistVal(inv, sublistId, 'linesequencenumber', i))
+            );
+            const netAmount = safe(getSublistVal(inv, sublistId, 'netamount', i));
+            const grossAmount = safe(getSublistVal(inv, sublistId, 'grossamount', i));
+
+            xml +=
+                '<taxLine>' +
+                    tag('lineNumber', i + 1) +
+                    tag('lineReference', lineRef) +
+                    tag('taxType', taxType) +
+                    tag('taxCode', taxCode) +
+                    tag('taxBasis', taxBasis) +
+                    tag('taxRate', taxRate) +
+                    tag('taxAmount', taxAmount) +
+                    tag('netAmount', netAmount) +
+                    tag('grossAmount', grossAmount) +
+                '</taxLine>';
+        }
+
+        return xml;
+    }
+
+    function loadRecordSafe(type, id) {
+        try {
+            if (!id) return null;
+            return record.load({
+                type: type,
+                id: id,
+                isDynamic: false
+            });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function readCustomerExtra(customerRec) {
+        if (!customerRec) {
+            return { pan: '', gstin: '' };
+        }
+
+        return {
+            pan: firstNonBlank(
+                safe(getVal(customerRec, 'custentity_in_pan_number')),
+                safe(getVal(customerRec, 'custentity_pan')),
+                safe(getVal(customerRec, 'custentity_permanent_account_number'))
+            ),
+            gstin: firstNonBlank(
+                safe(getVal(customerRec, 'custentity_in_gstin')),
+                safe(getVal(customerRec, 'custentity_gstin')),
+                safe(getVal(customerRec, 'custentity_in_gst_customer_reg_no')),
+                safe(getVal(customerRec, 'custentity_in_customer_gstin'))
+            )
+        };
+    }
+
+   function readSubsidiaryExtra(subsidiaryRec) {
+    if (!subsidiaryRec) {
+        return emptyAddressWithTax();
+    }
+
+    const addressText = firstNonBlank(
+        safe(getVal(subsidiaryRec, 'mainaddress_text')),
+        safe(getVal(subsidiaryRec, 'addrtext')),
+        safe(getText(subsidiaryRec, 'mainaddress')),
+        safe(getVal(subsidiaryRec, 'mainaddress'))
+    );
+
+    const country = firstNonBlank(
+        safe(getText(subsidiaryRec, 'country')),
+        safe(getVal(subsidiaryRec, 'country'))
+    );
+
+    return {
+        name: safe(getVal(subsidiaryRec, 'name')),
+        addressText: addressText,
+        city: '',
+        state: '',
+        country: country,
+        zip: '',
+        pan: firstNonBlank(
+            safe(getVal(subsidiaryRec, 'custrecord_in_pan_number')),
+            safe(getVal(subsidiaryRec, 'custrecord_pan')),
+            safe(getVal(subsidiaryRec, 'custrecord_permanent_account_number'))
+        ),
+        gstin: firstNonBlank(
+            safe(getText(subsidiaryRec, 'federalidnumber')),
+            safe(getVal(subsidiaryRec, 'federalidnumber')),
+            safe(getText(subsidiaryRec, 'taxidnum')),
+            safe(getVal(subsidiaryRec, 'taxidnum'))
+        )
+    };
+}
+
+    function readLocationExtra(locationRec) {
+        if (!locationRec) {
+            return emptyAddressWithTax();
+        }
+
+        const mainAddress = readGenericAddress(locationRec, 'mainaddress');
+
+        return {
+            name: safe(getVal(locationRec, 'name')),
+            addressText: mainAddress.text,
+            city: mainAddress.city,
+            state: mainAddress.state,
+            country: mainAddress.country,
+            zip: mainAddress.zip,
+            pan: '',
+            gstin: safe(getVal(locationRec, 'custrecord_xxflx_location_tax_reg_number'))
+        };
+    }
+
+    function readGenericAddress(rec, fieldId) {
+        try {
+            const subrec = rec.getSubrecord({ fieldId: fieldId });
+
+            return {
+                text: firstNonBlank(
+                    safe(getSubVal(subrec, 'addrtext')),
+                    buildAddressText(subrec)
+                ),
+                country: safe(getSubVal(subrec, 'country')),
+                addressee: safe(getSubVal(subrec, 'addressee')),
+                attention: safe(getSubVal(subrec, 'attention')),
+                addrPhone: safe(getSubVal(subrec, 'addrphone')),
+                addr1: safe(getSubVal(subrec, 'addr1')),
+                addr2: safe(getSubVal(subrec, 'addr2')),
+                addr3: safe(getSubVal(subrec, 'addr3')),
+                city: safe(getSubVal(subrec, 'city')),
+                state: safe(getSubVal(subrec, 'state')),
+                zip: safe(getSubVal(subrec, 'zip'))
+            };
+        } catch (e) {
+            return {
+                text: '',
+                country: '',
+                addressee: '',
+                attention: '',
+                addrPhone: '',
+                addr1: '',
+                addr2: '',
+                addr3: '',
+                city: '',
+                state: '',
+                zip: ''
+            };
+        }
+    }
+
+    function buildAddressText(subrec) {
+        return [
+            safe(getSubVal(subrec, 'addressee')),
+            safe(getSubVal(subrec, 'addr1')),
+            safe(getSubVal(subrec, 'addr2')),
+            safe(getSubVal(subrec, 'addr3')),
+            safe(getSubVal(subrec, 'city')),
+            safe(getSubVal(subrec, 'state')),
+            safe(getSubVal(subrec, 'zip')),
+            safe(getSubVal(subrec, 'country'))
+        ].filter(function (x) {
+            return x !== '';
+        }).join('\n');
+    }
+
+    function emptyAddressWithTax() {
+        return {
+            name: '',
+            addressText: '',
+            city: '',
+            state: '',
+            country: '',
+            zip: '',
+            pan: '',
+            gstin: ''
+        };
+    }
+
+    function readAddress(inv, fieldId) {
+        try {
+            const subrec = inv.getSubrecord({ fieldId: fieldId });
+            if (!subrec) return {};
+
+            return {
+                country: safe(getSubVal(subrec, 'country')),
+                addressee: safe(getSubVal(subrec, 'addressee')),
+                attention: safe(getSubVal(subrec, 'attention')),
+                addrPhone: safe(getSubVal(subrec, 'addrphone')),
+                addr1: safe(getSubVal(subrec, 'addr1')),
+                addr2: safe(getSubVal(subrec, 'addr2')),
+                addr3: safe(getSubVal(subrec, 'addr3')),
+                city: safe(getSubVal(subrec, 'city')),
+                state: safe(getSubVal(subrec, 'state')),
+                zip: safe(getSubVal(subrec, 'zip'))
+            };
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function addressXml(addr) {
+        return '' +
+            tag('country', addr.country) +
+            tag('addressee', addr.addressee) +
+            tag('attention', addr.attention) +
+            tag('phone', addr.addrPhone) +
+            tag('line1', addr.addr1) +
+            tag('line2', addr.addr2) +
+            tag('line3', addr.addr3) +
+            tag('city', addr.city) +
+            tag('state', addr.state) +
+            tag('zip', addr.zip);
+    }
 
     function xmlResponse(body) {
         return restlet.createResponse({
@@ -102,14 +756,31 @@ define(['N/record', 'N/scriptTypes/restlet'], (record, restlet) => {
     function errorXml(code, message) {
         return '<?xml version="1.0" encoding="UTF-8"?>' +
             '<response>' +
-                '<status>error</status>' +
-                '<code>' + esc(code) + '</code>' +
-                '<message>' + esc(message) + '</message>' +
+                tag('status', 'error') +
+                tag('code', code) +
+                tag('message', message) +
             '</response>';
+    }
+
+    function tag(name, value) {
+        return '<' + name + '>' + esc(safe(value)) + '</' + name + '>';
     }
 
     function safe(v) {
         return v == null ? '' : String(v);
+    }
+
+    function safeNumber(v) {
+        return v == null || v === '' ? 0 : Number(v);
+    }
+
+    function firstNonBlank() {
+        for (let i = 0; i < arguments.length; i++) {
+            if (arguments[i] !== null && arguments[i] !== undefined && String(arguments[i]) !== '') {
+                return String(arguments[i]);
+            }
+        }
+        return '';
     }
 
     function esc(v) {
@@ -119,6 +790,42 @@ define(['N/record', 'N/scriptTypes/restlet'], (record, restlet) => {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&apos;');
+    }
+
+    function getVal(rec, fieldId) {
+        try { return rec.getValue({ fieldId: fieldId }); } catch (e) { return ''; }
+    }
+
+    function getText(rec, fieldId) {
+        try { return rec.getText({ fieldId: fieldId }); } catch (e) { return ''; }
+    }
+
+    function getSubVal(subrec, fieldId) {
+        try { return subrec.getValue({ fieldId: fieldId }); } catch (e) { return ''; }
+    }
+
+    function getSublistVal(rec, sublistId, fieldId, line) {
+        try {
+            return rec.getSublistValue({
+                sublistId: sublistId,
+                fieldId: fieldId,
+                line: line
+            });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getSublistText(rec, sublistId, fieldId, line) {
+        try {
+            return rec.getSublistText({
+                sublistId: sublistId,
+                fieldId: fieldId,
+                line: line
+            });
+        } catch (e) {
+            return '';
+        }
     }
 
     return { get };
