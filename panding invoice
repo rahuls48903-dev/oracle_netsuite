@@ -2,14 +2,14 @@
  * @NApiVersion 2.1
  * @NScriptType Restlet
  */
-define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
+define(['N/search', 'N/format', 'N/scriptTypes/restlet'], (search, format, restlet) => {
 
     const get = (params) => {
         try {
             const apiKey = params.apiKey || '';
             const limit = Number(params.limit || 100);
 
-            let xml = '<?xml version="1.0" encoding="UTF-8"?>';
+            let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
             xml += '<DATA_DS>';
 
             const invoiceSearch = search.create({
@@ -17,11 +17,16 @@ define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
                 filters: [
                     ['mainline', 'is', 'T'],
                     'AND',
-                    ['approvalstatus', 'anyof', '1'] // Pending Approval
-                ],
+         ['trandate', 'onorafter', '15-Jun-2026'],
+       'AND',
+        ['approvalstatus', 'anyof', '2'],
+                  'AND',
+                      ['custbody3', 'isempty', ''],
+    'AND',
+    ['custbody4', 'isempty', '']
+    ],
                 columns: [
                     'internalid',
-                    'tranid',
                     'trandate',
                     'type',
                     'source',
@@ -37,7 +42,11 @@ define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
                 }
 
                 const trxNumber = val(result, 'internalid');
-                const trxDate = val(result, 'trandate');
+
+                // ✅ Convert Date to ISO format
+                const rawDate = result.getValue({ name: 'trandate' });
+                const trxDate = formatDateISO(rawDate);
+
                 const type = text(result, 'type');
                 const sourceName = text(result, 'source');
                 const orgName = text(result, 'subsidiary');
@@ -45,7 +54,7 @@ define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
                 xml += '<G_1>';
                 xml += tag('APIKEYFORDATA', apiKey);
                 xml += tag('TRX_NUMBER', trxNumber);
-                xml += tag('TRX_DATE', trxDate);
+                xml += tag('TRX_DATE', trxDate); // ✅ formatted date
                 xml += tag('TYPE', type);
                 xml += tag('TRX_SOURCE_NAME', sourceName);
                 xml += tag('ORG_NAME', orgName);
@@ -74,6 +83,22 @@ define(['N/search', 'N/scriptTypes/restlet'], (search, restlet) => {
             });
         }
     };
+
+    // ✅ Convert NetSuite Date → ISO format
+    function formatDateISO(nsDate) {
+        try {
+            if (!nsDate) return '';
+
+            const jsDate = format.parse({
+                value: nsDate,
+                type: format.Type.DATE
+            });
+
+            return new Date(jsDate).toISOString(); // ✅ 2025-09-06T00:00:00.000Z
+        } catch (e) {
+            return '';
+        }
+    }
 
     function val(result, name) {
         try {
